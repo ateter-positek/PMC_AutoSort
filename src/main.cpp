@@ -551,6 +551,8 @@ void checkDigitalInputs() {
     flagDigitalInputs = true;
     ThisThread::sleep_for(50ms);
   }
+
+  
 void checkEncoders() {
    while (true) {
   for (int i = 0; i < numEncoders; i++) { 
@@ -631,4 +633,3 @@ void checkTemperatureSensors() {
 void reboot() {
   NVIC_SystemReset();
 } 
-
