@@ -10,7 +10,12 @@ using namespace std::chrono;
 using namespace machinecontrol;
 using namespace rtos;
 
-
+// Define a structure to hold the state of each encoder
+struct EncoderState {
+  long count;
+  long revolutions;
+  bool changed;
+};
 #define DEBOUNCE_DELAY 50  // debounce time in milliseconds
 // Define a structure to hold the state of each digital input
 struct DigitalInputs {
@@ -23,32 +28,12 @@ struct DigitalInputs {
   bool ch6;
   bool ch7;
 };
-
-// Define a structure to hold the state of each encoder
-struct EncoderState {
-  long count;
-  long revolutions;
-  bool changed;
-};
-
-// Create a DigitalInputs object to hold the current state
 DigitalInputs digitalInputs;
-
-// Create a DigitalInputs object to hold the raw state
 DigitalInputs rawDigitalInputs;
-
-// Create a DigitalInputs object to hold the last state
 DigitalInputs lastDigitalInputs;
-
-// Create an array to hold the last debounce time for each channel
 unsigned long lastDebounceTime[8] = {0};
-
-// Create a flag to indicate when the digital inputs have changed
 volatile bool digitalInputsChanged = false;
-
-// Create a mutex for the digitalInputs object and the digitalInputsChanged flag
 rtos::Mutex digitalInputsMutex;
-
 volatile bool interruptOccured = false;
 
 void inputCallback()

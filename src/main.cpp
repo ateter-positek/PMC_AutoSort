@@ -7,6 +7,7 @@
 #include <chrono>
 #include "Wire.h"
 #include <math.h>
+#include <Portenta_H7_AsyncHTTPRequest.h>
 
 using namespace std::chrono;
 using namespace machinecontrol;
@@ -110,6 +111,8 @@ void checkDigitalInputs();
 void checkEncoders();
 void checkTemperatureSensors();
 void reboot();
+void autosortAPI();
+void sendRS232(String extractedString);
 
 
 
@@ -149,7 +152,7 @@ Thread connectThread;
 Thread threadDigitalInputs;
 Thread threadEncoders;
 Thread threadTemperatureSensors;
-
+Thread threadJSONAPI;
 // Connection status flags
 bool connectedEthernet = false;
 bool connectedMQTT = false;
@@ -159,6 +162,7 @@ volatile bool flagDigitalInputs = true;
 volatile bool flagEncoders = true;
 volatile bool flagTemperatureSensors = true;
 volatile bool flagMQTTLoop = true;
+volatile bool flagAutoSort = true;
 
 // Unique Serial Number (USN) - MAC Address
 String USN;
@@ -169,6 +173,17 @@ int inputPins[numInputs] = {0, 1, 2, 3, 4, 5, 6, 7};
 int inputStates[numInputs] = {0};
 unsigned long lastDebounceTime[numInputs] = {0};
 #define DEBOUNCE_DELAY 50  // debounce time in milliseconds
+//Count array for digital inputs
+int inputCount[numInputs] = {0};
+//For Autosort
+//#define inputCount[0] _heartbeat
+//#define inputCount[1] _garment
+//#define inputCount[2] _plc 
+bool HeartBeat = false;
+bool Garment = false;
+String PLCbuffer = "";
+
+
 
 // Digital outputs
 const int numOutputs = 8;
@@ -326,7 +341,7 @@ void setup() {
   threadEncoders.start(checkEncoders);
   threadTemperatureSensors.start(checkTemperatureSensors);
   threadWatchdog.start(watchdogThread);
-
+  threadJSONAPI.start(autosortAPI);
 
 
   Serial.println("Boot Complete");
@@ -352,6 +367,7 @@ void watchdogThread() {
       flagEncoders = false;
       flagTemperatureSensors = false;
       flagMQTTLoop = false;
+      flagAutoSort = false;
     }
 
     Serial.println(" ");
@@ -365,6 +381,8 @@ void watchdogThread() {
     Serial.println(flagTemperatureSensors);
     Serial.print("flagMQTTLoop: ");
     Serial.println(flagMQTTLoop);
+    Serial.print("flagAutoSort: ");
+    Serial.println(flagAutoSort);
     Serial.println("-------------------------------------------------");
     Serial.println(" ");
 
@@ -527,6 +545,10 @@ void checkDigitalInputs() {
         if (inputStates[i] != reading) {
           inputStates[i] = reading;
           
+          //update input counter
+           
+            inputCount[i]++;
+          
           Serial.print("SEND READING: $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$  ");
           Serial.print(reading);
           Serial.println("  $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$");
@@ -633,3 +655,61 @@ void checkTemperatureSensors() {
 void reboot() {
   NVIC_SystemReset();
 } 
+
+
+void autosortAPI() {
+while (true) {
+    //debug
+    //print inputCount
+    Serial.print("Heartbeat: ");
+    Serial.println(inputCount[0]);
+    Serial.print("Garment: ");
+    Serial.println(inputCount[1]);
+    Serial.print("PLC: ");
+    Serial.println(inputCount[2]);
+  if (inputCount[0] > 0) {
+    // Update the needed variables
+    int Heartbeat = millis();
+    bool Garment = inputCount[1];
+    inputCount[0] = 0;
+    inputCount[1] = 0;
+
+    // Build the API POST
+    String payload = "{\"Heartbeat\":" + String(Heartbeat) + ",\"Garment\":" + String(Garment) + "}";
+    AsyncHTTPRequest request;
+    request.open("POST", MQTT_HOST + "/api/autosortpost");
+    request.send(payload);
+
+    // Check for errors
+    if (request.readyState() == 4) {
+      Serial.println("Error sending POST request: " + String(request.readyState()));
+     
+      return;
+    }
+
+    // Read the Response Body
+    String response = request.responseText();
+    int start = response.indexOf("\"") + 1;
+    int end = response.indexOf("\"", start);
+    String extractedString = response.substring(start, end);
+
+    // Check extracted string
+    if (extractedString != "$$$$") {
+      sendRS232(extractedString);
+    }
+  }
+    flagAutoSort = true;
+    ThisThread::sleep_for(2000ms);
+  }
+}
+
+void sendRS232(String extractedString) {
+
+  // Send the RS232 message
+    comm_protocols.rs485.noReceive();
+    comm_protocols.rs485.beginTransmission();
+    comm_protocols.rs485.println(extractedString);
+    comm_protocols.rs485.endTransmission();
+    comm_protocols.rs485.receive();
+}
+
