@@ -1,13 +1,20 @@
 #include <Arduino.h>
 #include <Arduino_MachineControl.h>
 #include <AsyncMqtt_Generic.h>
-#include <PortentaEthernet.h>
 #include <ArduinoJson.h>
 #include "mbed.h"
 #include <chrono>
 #include "Wire.h"
 #include <math.h>
-#include <Portenta_H7_AsyncHTTPRequest.h>
+#define PORTENTA_H7_ASYNC_HTTP_DEBUG_PORT       Serial
+
+// Use from 0 to 4. Higher number, more debugging messages and memory usage.
+#define _PORTENTA_H7_ATCP_LOGLEVEL_             4
+#define _ASYNC_HTTP_LOGLEVEL_                   4
+
+
+#include <Portenta_Ethernet.h>
+#include <Ethernet.h>
 
 using namespace std::chrono;
 using namespace machinecontrol;
@@ -122,7 +129,7 @@ void sendRS232(String extractedString);
 
 
 // MQTT and Ethernet settings
-#define MQTT_HOST IPAddress(192, 168, 12, 110)
+#define MQTT_HOST IPAddress(192, 168, 100, 187)
 #define MQTT_PORT 1883
 #define MQTT_CHECK_INTERVAL_MS 50
 byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xA1, 0x11 };
@@ -130,11 +137,11 @@ byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xA1, 0x11 };
 
 // MQTT client
 AsyncMqttClient mqttClient;
-
+AsyncHTTPRequest request;
 // Create a Watchdog
 
 // Define the watchdog timeout (in milliseconds)
-#define WATCHDOG_TIMEOUT_MS 20000
+#define WATCHDOG_TIMEOUT_MS 200000
 
 // Define the watchdog configuration
 watchdog_config_t wdt_config = {
@@ -658,48 +665,61 @@ void reboot() {
 
 
 void autosortAPI() {
-while (true) {
-    //debug
-    //print inputCount
+  while (true) {
+    // Debug: Print inputCount
     Serial.print("Heartbeat: ");
     Serial.println(inputCount[0]);
     Serial.print("Garment: ");
     Serial.println(inputCount[1]);
     Serial.print("PLC: ");
     Serial.println(inputCount[2]);
-  if (inputCount[0] > 0) {
-    // Update the needed variables
-    int Heartbeat = millis();
-    bool Garment = inputCount[1];
-    inputCount[0] = 0;
-    inputCount[1] = 0;
 
-    // Build the API POST
-    String payload = "{\"Heartbeat\":" + String(Heartbeat) + ",\"Garment\":" + String(Garment) + "}";
-    AsyncHTTPRequest request;
-    request.open("POST", MQTT_HOST + "/api/autosortpost");
-    request.send(payload);
+    if (inputCount[0] > 0) {
+      // Debug: Print status
+      Serial.println("Preparing to send POST request...");
 
-    // Check for errors
-    if (request.readyState() == 4) {
-      Serial.println("Error sending POST request: " + String(request.readyState()));
-     
-      return;
+      // Update the needed variables
+      int Heartbeat = millis();
+      bool Garment = inputCount[1];
+      inputCount[0] = 0;
+      inputCount[1] = 0;
+
+      // Build the API POST
+      String payload = "{\"Heartbeat\":" + String(Heartbeat) + ",\"Garment\":" + String(Garment) + "}";
+Serial.println(payload);
+      
+      request.open("POST", "http://192.168.100.187:16000/api/autosortpost");
+      request.send(payload);
+
+      // Debug: Print status
+      Serial.println("POST request sent. Checking for errors...");
+
+      // Check for errors
+      if (request.readyState() == 4) {
+        Serial.println("Error sending POST request: " + String(request.readyState()));
+        return;
+      }
+
+      // Debug: Print status
+      Serial.println("POST request successful. Reading response...");
+
+      // Read the Response Body
+      String response = request.responseText();
+      int start = response.indexOf("\"") + 1;
+      int end = response.indexOf("\"", start);
+      String extractedString = response.substring(start, end);
+
+      // Debug: Print extracted string
+      Serial.println("Extracted string from response: " + extractedString);
+
+      // Check extracted string
+      if (extractedString != "$$$$") {
+        sendRS232(extractedString);
+      }
     }
 
-    // Read the Response Body
-    String response = request.responseText();
-    int start = response.indexOf("\"") + 1;
-    int end = response.indexOf("\"", start);
-    String extractedString = response.substring(start, end);
-
-    // Check extracted string
-    if (extractedString != "$$$$") {
-      sendRS232(extractedString);
-    }
-  }
     flagAutoSort = true;
-    ThisThread::sleep_for(2000ms);
+    ThisThread::sleep_for(50ms);
   }
 }
 
